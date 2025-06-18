@@ -66,33 +66,34 @@ def load_assets():
 # ===================================================================
 # BAGIAN 2: FUNGSI UNTUK MENDAPATKAN REKOMENDASI
 # ===================================================================
+# GANTI FUNGSI LAMA ANDA DENGAN VERSI LENGKAP INI
 def get_recommendations(model_bundle, movies_2020, movies_2020_features, input_title_clean):
     """
     Memberikan rekomendasi film menggunakan model dan data yang sudah dimuat.
     """
-    # Ekstrak model
+    # Ekstrak model dari bundle
     kmeans = model_bundle['kmeans']
     scaler = model_bundle['scaler']
     pca = model_bundle['pca']
-    
-    # Siapkan fitur untuk prediksi
+
+    # Siapkan fitur untuk prediksi dari dataframe yang sudah diproses
     genre_cols = [col for col in movies_2020_features.columns if col not in ['movieId', 'title', 'title_clean', 'year', 'mean_rating', 'num_ratings']]
     feature_data = movies_2020_features[genre_cols + ['mean_rating', 'num_ratings']].copy()
-    
-    # Terapkan pembobotan, scaling, dan PCA
+
+    # Terapkan pembobotan, scaling, dan PCA yang sama persis seperti saat training
     weight = 2.0
     feature_data[genre_cols] = feature_data[genre_cols] * weight
     scaled_features = scaler.transform(feature_data)
     reduced_features = pca.transform(scaled_features)
-    
+
     # Prediksi cluster untuk SEMUA film
     cluster_labels = kmeans.predict(reduced_features)
     movies_2020_features['cluster'] = cluster_labels
-    
+
     # Jalankan logika post-filtering
     movie_row = movies_2020_features[movies_2020_features['title_clean'] == input_title_clean]
     if movie_row.empty:
-        return pd.DataFrame()
+        return pd.DataFrame() # Kembalikan DataFrame kosong jika film tidak ditemukan
 
     movie_cluster = movie_row['cluster'].values[0]
     cluster_movies = movies_2020_features[movies_2020_features['cluster'] == movie_cluster].copy()
@@ -117,14 +118,15 @@ def get_recommendations(model_bundle, movies_2020, movies_2020_features, input_t
     filtered_recommendations = filtered_recommendations[filtered_recommendations['title_clean'] != input_title_clean]
     final_recommendations = filtered_recommendations.head(5)
 
+    # Gabungkan dengan info genre untuk ditampilkan
     final_recommendations_with_genres = pd.merge(
         final_recommendations,
         movies_2020[['title', 'genres']],
-        on='title', 
-        how='left'  
+        on='title',
+        how='left'
     )
 
-    # Tampilkan kolom yang diinginkan
+    # Kembalikan hasil akhir
     return final_recommendations_with_genres[['title', 'genres', 'mean_rating', 'jaccard_score']]
 
 # ===================================================================
