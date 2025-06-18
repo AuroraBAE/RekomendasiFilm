@@ -35,37 +35,37 @@ def load_assets():
 # ===================================================================
 # BAGIAN 2: FUNGSI UNTUK MENDAPATKAN REKOMENDASI
 # ===================================================================
-# GANTI FUNGSI LAMA ANDA DENGAN VERSI LENGKAP INI
 def get_recommendations(model_bundle, movies_2020, movies_2020_features, input_title_clean):
     """
     Memberikan rekomendasi film menggunakan model dan data yang sudah dimuat.
+    Fungsi ini tidak lagi melakukan feature engineering ulang.
     """
     # Ekstrak model dari bundle
     kmeans = model_bundle['kmeans']
     scaler = model_bundle['scaler']
     pca = model_bundle['pca']
 
-    # Siapkan fitur untuk prediksi dari dataframe yang sudah diproses
-    genre_cols = [col for col in movies_2020_features.columns if col not in ['movieId', 'title', 'title_clean', 'year', 'mean_rating', 'num_ratings']]
-    feature_data = movies_2020_features[genre_cols + ['mean_rating', 'num_ratings']].copy()
-
-    # Terapkan pembobotan, scaling, dan PCA yang sama persis seperti saat training
-    weight = 2.0
-    feature_data[genre_cols] = feature_data[genre_cols] * weight
-    scaled_features = scaler.transform(feature_data)
-    reduced_features = pca.transform(scaled_features)
-
-    # Prediksi cluster untuk SEMUA film
-    cluster_labels = kmeans.predict(reduced_features)
-    movies_2020_features['cluster'] = cluster_labels
-
-    # Jalankan logika post-filtering
+    # --- PERBAIKAN: HAPUS SEMUA PROSES PEMBUATAN FITUR ULANG ---
+    # Kita asumsikan 'movies_2020_features' yang dimuat dari .parquet sudah siap.
+    # Kolom 'cluster' juga sudah ada dari proses training.
+    
+    # Cari baris film yang diinput oleh pengguna
     movie_row = movies_2020_features[movies_2020_features['title_clean'] == input_title_clean]
     if movie_row.empty:
         return pd.DataFrame() # Kembalikan DataFrame kosong jika film tidak ditemukan
 
-    movie_cluster = movie_row['cluster'].values[0]
+    # Langsung ambil cluster dari film yang dipilih
+    # Pastikan kolom 'cluster' ada di file features.parquet Anda
+    try:
+        movie_cluster = movie_row['cluster'].values[0]
+    except KeyError:
+        st.error("Error: Kolom 'cluster' tidak ada di file 'features.parquet'. Pastikan Anda menyimpan dataframe setelah training.")
+        return pd.DataFrame()
+
+    # Ambil film lain dalam cluster yang sama
     cluster_movies = movies_2020_features[movies_2020_features['cluster'] == movie_cluster].copy()
+    
+    # --- LOGIKA POST-FILTERING TETAP SAMA ---
     initial_candidates = cluster_movies.sort_values(by='mean_rating', ascending=False).head(20)
 
     input_title_original = movie_row['title'].values[0]
