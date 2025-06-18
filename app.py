@@ -10,56 +10,25 @@ import numpy as np
 @st.cache_data
 def load_assets():
     """
-    Memuat model, dan memproses semua DataFrame yang dibutuhkan oleh aplikasi.
+    Memuat model dan data yang sudah diproses sebelumnya.
     """
     try:
-        # Gunakan Path Relatif
         model_path = 'recommender_model.pkl'
         movies_path = "movies.csv"
-        ratings_path = "ratings.csv"
+        features_path = "features.parquet" # <-- Path ke file fitur baru
 
-        # Muat model bundle
         model_bundle = joblib.load(model_path)
-        
-        # Muat data mentah
         movies_raw = pd.read_csv(movies_path)
-        ratings_raw = pd.read_csv(ratings_path)
+        movies_2020_features = pd.read_parquet(features_path) # <-- Muat file parquet
         
-        # --- PERBAIKAN DIMULAI DI SINI ---
-        
-        # 1. Buat kolom 'year' TERLEBIH DAHULU dari 'title'
-        movies_raw['year'] = movies_raw['title'].str.extract(r'\((\d{4})\)').astype(float)
-        
-        # 2. BARU saring data menggunakan kolom 'year' yang sudah ada
-        movies_2020 = movies_raw[
-            (movies_raw['year'] >= 2020) & (movies_raw['genres'] != '(no genres listed)')
-        ].copy()
-        
-        # --- PERBAIKAN SELESAI ---
-
-        # Sisa kode untuk membuat movies_2020_features sama seperti sebelumnya
-        movies_2020['title_clean'] = movies_2020['title'].str.replace(r'\s*\(\d{4}\)$', '', regex=True).str.strip().str.lower()
+        # Buat movies_2020 untuk lookup genre (jika masih diperlukan)
+        movies_2020 = movies_raw[movies_raw['movieId'].isin(movies_2020_features['movieId'])].copy()
         movies_2020['genres_list'] = movies_2020['genres'].str.split('|')
         
-        genre_dummies = movies_2020['genres_list'].explode().str.get_dummies().groupby(level=0).sum()
-        movies_2020_features = pd.concat(
-            [movies_2020[['movieId', 'title', 'title_clean', 'year']], genre_dummies], axis=1
-        )
-        mean_rating = ratings_raw.groupby('movieId')['rating'].mean().reset_index(name='mean_rating')
-        count_rating = ratings_raw.groupby('movieId')['rating'].count().reset_index(name='num_ratings')
-        rating_stats = pd.merge(mean_rating, count_rating, on='movieId')
-        movies_2020_features = pd.merge(movies_2020_features, rating_stats, on='movieId', how='left')
-        movies_2020_features.dropna(subset=['mean_rating', 'num_ratings'], inplace=True)
-        movies_2020_features.reset_index(drop=True, inplace=True)
-        
-        # Kembalikan semua yang dibutuhkan aplikasi
         return model_bundle, movies_raw, movies_2020, movies_2020_features
 
-    except FileNotFoundError:
-        st.error("Error: Salah satu file (recommender_model.pkl, movies.csv, atau ratings.csv) tidak ditemukan.")
-        return None, None, None, None
-    except Exception as e:
-        st.error(f"Terjadi error saat memuat aset: {e}")
+    except FileNotFoundError as e:
+        st.error(f"Error: File tidak ditemukan. Pastikan file '{e.filename}' ada di repository GitHub.")
         return None, None, None, None
 
 
