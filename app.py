@@ -2,34 +2,66 @@ import streamlit as st
 import joblib
 import pandas as pd
 import numpy as np
+import requests
 
 # ===================================================================
 # BAGIAN 1: FUNGSI UNTUK MEMUAT SEMUA ASET (MODEL & DATA)
 # ===================================================================
 
+TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b"
+
 @st.cache_data
 def load_assets():
-    """
-    Memuat model dan data yang sudah diproses sebelumnya.
-    """
+    """Memuat model dan data yang sudah diproses."""
     try:
         model_path = 'recommender_model.pkl'
+        features_path = "features.parquet"
         movies_path = "movies.csv"
-        features_path = "features.parquet" # <-- Path ke file fitur baru
 
         model_bundle = joblib.load(model_path)
-        movies_raw = pd.read_csv(movies_path)
-        movies_2020_features = pd.read_parquet(features_path) # <-- Muat file parquet
+        movies_df_features = pd.read_parquet(features_path)
+        movies_df_original = pd.read_csv(movies_path)
         
-        # Buat movies_2020 untuk lookup genre (jika masih diperlukan)
-        movies_2020 = movies_raw[movies_raw['movieId'].isin(movies_2020_features['movieId'])].copy()
+        movies_2020 = movies_df_original[movies_df_original['movieId'].isin(movies_df_features['movieId'])].copy()
         movies_2020['genres_list'] = movies_2020['genres'].str.split('|')
-        
-        return model_bundle, movies_raw, movies_2020, movies_2020_features
 
-    except FileNotFoundError as e:
-        st.error(f"Error: File tidak ditemukan. Pastikan file '{e.filename}' ada di repository GitHub.")
+        return model_bundle, movies_df_original, movies_2020, movies_df_features
+    except Exception as e:
+        st.error(f"Error saat memuat aset: {e}")
         return None, None, None, None
+    
+
+@st.cache_data
+def get_movie_details(movie_title):
+    """Mengambil sinopsis dan URL poster dari API TMDb."""
+    # Ekstrak judul bersih dan tahun
+    try:
+        title_only = movie_title.rsplit('(', 1)[0].strip()
+        year = movie_title.rsplit('(', 1)[1].replace(')', '')
+    except:
+        title_only = movie_title
+        year = None
+    
+    # URL untuk mencari film di TMDb
+    search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={title_only}&year={year}"
+    
+    try:
+        response = requests.get(search_url)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data['results']:
+            # Ambil film pertama dari hasil pencarian
+            movie_data = data['results'][0]
+            overview = movie_data.get('overview', 'Sinopsis tidak tersedia.')
+            poster_path = movie_data.get('poster_path', '')
+            poster_url = f"https://image.tmdb.org/t/p/w200{poster_path}" if poster_path else None
+            return overview, poster_url
+    except requests.exceptions.RequestException as e:
+        # Jangan tampilkan error API ke pengguna, cukup kembalikan nilai default
+        print(f"API Error: {e}")
+
+    return "Sinopsis tidak tersedia.", None
 
 
 # ===================================================================
@@ -102,34 +134,49 @@ def get_recommendations(model_bundle, movies_2020, movies_2020_features, input_t
 # BAGIAN 3: TAMPILAN UTAMA APLIKASI STREAMLIT
 # ===================================================================
 st.set_page_config(page_title="Rekomendasi Film", layout="wide")
-st.title("🎬 Sistem Rekomendasi Film Berdasarkan Genre")
-st.write("Masukkan judul film favorit Anda untuk menemukan film serupa, atau cari judul dari daftar di samping.")
+st.title("🎬 Sistem Rekomendasi Film")
+st.write("Masukkan judul film favorit Anda untuk menemukan film serupa.")
 
-# Muat semua aset yang dibutuhkan
+# Muat semua aset
 model_bundle, movies_raw, movies_2020, movies_2020_features = load_assets()
 
 if model_bundle:
-    st.sidebar.title("Daftar Film Tersedia (2020+)") 
+    # --- SIDEBAR ---
+    st.sidebar.title("Daftar Film Tersedia (2020+)")
     search_term = st.sidebar.text_input("Cari judul film di sini:")
-
-    # Gunakan movies_2020 sebagai sumber data untuk sidebar
     if search_term:
         available_movies = movies_2020[movies_2020['title'].str.contains(search_term, case=False)]
     else:
         available_movies = movies_2020
-
     st.sidebar.dataframe(available_movies[['title', 'genres']], height=400)
 
     # --- KONTEN UTAMA ---
-    movie_title = st.text_input("Ketik judul film (lowercase) ")
+    movie_title_input = st.text_input("Ketik judul film (contoh: waves):", "waves")
 
     if st.button("Cari Rekomendasi", type="primary"):
-        if movie_title:
-            with st.spinner(f"Mencari film yang mirip dengan '{movie_title}'..."):
-                recommendations = get_recommendations(model_bundle, movies_2020, movies_2020_features, movie_title.lower())
+        if movie_title_input:
+            with st.spinner(f"Mencari film yang mirip dengan '{movie_title_input}'..."):
+                recommendations = get_recommendations(model_bundle, movies_2020, movies_2020_features, movie_title_input.lower())
+
                 st.subheader("Berikut adalah hasil rekomendasinya:")
                 if not recommendations.empty:
-                    st.dataframe(recommendations)
+                    # --- TAMPILAN BARU MENGGUNAKAN KOLOM ---
+                    for index, row in recommendations.iterrows():
+                        st.write("---")
+                        # Buat 2 kolom: satu untuk poster, satu untuk info
+                        col1, col2 = st.columns([1, 4])
+                        
+                        # Ambil sinopsis dan poster dari API
+                        synopsis, poster_url = get_movie_details(row['title'])
+                        
+                        with col1:
+                            if poster_url:
+                                st.image(poster_url)
+                        
+                        with col2:
+                            st.subheader(row['title'])
+                            st.caption(f"Genre: {row['genres']} | Rating: {row['mean_rating']:.2f} ⭐")
+                            st.write(synopsis)
                 else:
                     st.warning("Maaf, tidak ada rekomendasi yang ditemukan untuk judul tersebut.")
         else:
