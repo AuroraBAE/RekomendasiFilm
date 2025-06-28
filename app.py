@@ -146,9 +146,9 @@ if all(asset is not None for asset in assets):
 
     # --- Input utama dari pengguna ---
     movie_title_input = st.selectbox(
-        "Pilih atau ketik judul film favorit Anda:",
-        options=movies_2020['title_clean'].unique(),
-        index=list(movies_2020['title_clean'].unique()).index('waves') # Nilai default
+    "Pilih atau ketik judul film favorit Anda:",
+    options=movies_2020_features['title_clean'].unique(),
+    index=list(movies_2020_features['title_clean'].unique()).index('waves') 
     )
 
     if st.button("Cari Rekomendasi", type="primary", use_container_width=True):
