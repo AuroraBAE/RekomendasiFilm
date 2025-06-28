@@ -15,7 +15,7 @@ TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b" # Silakan ganti dengan API Key
 def load_assets():
     """Memuat semua aset: model bundle dan dataframes."""
     try:
-        model_bundle = joblib.load('model_bundle.pkl')
+        model_bundle = joblib.load('recommender_model.pkl')
         movies_df_features = pd.read_parquet("features.parquet")
         movies_df_original = pd.read_csv("movies.csv")
         
