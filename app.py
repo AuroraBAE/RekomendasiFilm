@@ -9,47 +9,48 @@ import requests
 # ===================================================================
 
 # GANTI DENGAN API KEY ANDA YANG SEBENARNYA DARI TMDB
-TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b"
+TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b" # Silakan ganti dengan API Key Anda
 
 @st.cache_data
 def load_assets():
-    """Memuat model, dan memproses semua DataFrame yang dibutuhkan oleh aplikasi."""
+    """Memuat semua aset: model bundle dan dataframes."""
     try:
-        model_path = 'recommender_model.pkl'
-        features_path = "features.parquet"
-        movies_path = "movies.csv"
-
-        model_bundle = joblib.load(model_path)
-        movies_df_features = pd.read_parquet(features_path)
-        movies_df_original = pd.read_csv(movies_path)
+        model_bundle = joblib.load('model_bundle.pkl')
+        movies_df_features = pd.read_parquet("features.parquet")
+        movies_df_original = pd.read_csv("movies.csv")
         
+        # Ekstrak model individual dari bundle
+        scaler = model_bundle['scaler']
+        pca = model_bundle['pca']
+        kmeans = model_bundle['kmeans']
+        
+        # Siapkan dataframe movies_2020 untuk genres_list
         movies_2020 = movies_df_original[movies_df_original['movieId'].isin(movies_df_features['movieId'])].copy()
         movies_2020['genres_list'] = movies_2020['genres'].str.split('|')
         
-        return model_bundle, movies_df_original, movies_2020, movies_df_features
+        # Ambil daftar kolom genre dari dataframe fitur
+        non_feature_cols = ['movieId', 'title', 'year', 'title_clean', 'genre_encoded', 
+                            'mean_rating', 'num_ratings', 'decoded_genre', 'cluster']
+        genre_cols = [col for col in movies_df_features.columns if col not in non_feature_cols]
+
+        return kmeans, scaler, pca, movies_2020, movies_df_features, genre_cols
+    
     except FileNotFoundError as e:
-        st.error(f"Error: File tidak ditemukan. Pastikan file '{e.filename}' ada di repository GitHub.")
-        return None, None, None, None
+        st.error(f"Error: File aset tidak ditemukan. Pastikan file '{e.filename}' ada di direktori aplikasi Anda.")
+        return None, None, None, None, None, None
     except Exception as e:
         st.error(f"Terjadi error saat memuat aset: {e}")
-        return None, None, None, None
+        return None, None, None, None, None, None
 
 # ===================================================================
-# BAGIAN 2: FUNGSI BARU UNTUK MENGAMBIL DETAIL FILM DARI TMDB
+# BAGIAN 2: FUNGSI UNTUK MENGAMBIL DETAIL FILM DARI TMDB (TIDAK PERLU DIUBAH)
 # ===================================================================
 @st.cache_data
 def get_movie_details(movie_title):
     """Mengambil sinopsis dan URL poster dari API TMDb."""
     try:
         title_only = movie_title.rsplit('(', 1)[0].strip()
-        year = movie_title.rsplit('(', 1)[1].replace(')', '')
-    except:
-        title_only = movie_title
-        year = None
-    
-    search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={title_only}&year={year}"
-    
-    try:
+        search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={title_only}"
         response = requests.get(search_url)
         response.raise_for_status()
         data = response.json()
@@ -57,84 +58,114 @@ def get_movie_details(movie_title):
             movie_data = data['results'][0]
             overview = movie_data.get('overview', 'Sinopsis tidak tersedia.')
             poster_path = movie_data.get('poster_path', '')
-            poster_url = f"https://image.tmdb.org/t/p/w200{poster_path}" if poster_path else None
+            poster_url = f"https://image.tmdb.org/t/p/w200{poster_path}" if poster_path else "https://via.placeholder.com/200x300.png?text=No+Image"
             return overview, poster_url
-    except requests.exceptions.RequestException:
-        pass # Abaikan error API agar aplikasi tidak crash
-    return "Sinopsis tidak tersedia.", None
+    except Exception:
+        pass
+    return "Sinopsis tidak tersedia.", "https://via.placeholder.com/200x300.png?text=No+Image"
 
 # ===================================================================
-# BAGIAN 3: FUNGSI REKOMENDASI (VERSI LENGKAP DAN BENAR)
+# BAGIAN 3: FUNGSI REKOMENDASI (VERSI PERBAIKAN FINAL)
 # ===================================================================
-def get_recommendations(model_bundle, movies_2020, movies_2020_features, input_title_clean):
-    """Memberikan rekomendasi film menggunakan logika K-Means dan post-filtering."""
-    try:
-        # Cari film yang diinput
-        movie_row = movies_2020_features[movies_2020_features['title_clean'] == input_title_clean]
-        if movie_row.empty:
-            return pd.DataFrame()
+def get_recommendations_final(input_title_clean, df_labeled, kmeans_model, scaler, pca, genre_cols,
+                             original_movies_df, n_initial_candidates=30, n_recommendations=5, 
+                             similarity_threshold=0.5):
+    """
+    Fungsi rekomendasi FINAL dengan logika centroid dan fallback.
+    """
+    movie_row = df_labeled[df_labeled['title_clean'] == input_title_clean.lower()]
+    if movie_row.empty:
+        return pd.DataFrame()
 
-        # Ambil cluster dari film tersebut
-        movie_cluster = movie_row['cluster'].values[0]
-        cluster_movies = movies_2020_features[movies_2020_features['cluster'] == movie_cluster].copy()
-        
-        # Ambil kandidat awal
-        initial_candidates = cluster_movies.sort_values(by='mean_rating', ascending=False).head(20)
+    target_cluster = movie_row['cluster'].iloc[0]
+    input_movie_id = movie_row['movieId'].iloc[0]
+    
+    # 1. Ambil kandidat berdasarkan jarak ke centroid
+    cluster_df = df_labeled[df_labeled['cluster'] == target_cluster].copy()
+    features = cluster_df[genre_cols + ['mean_rating', 'num_ratings']].fillna(0)
+    
+    # Terapkan bobot yang sama seperti saat training
+    weight = 3.0 # PASTIKAN INI SAMA DENGAN BOBOT SAAT TRAINING
+    features[genre_cols] *= weight
+    
+    scaled_features = scaler.transform(features)
+    reduced_features = pca.transform(scaled_features)
+    
+    distances = kmeans_model.transform(reduced_features)[:, target_cluster]
+    cluster_df['distance'] = distances
+    initial_candidates = cluster_df.sort_values(by='distance').head(n_initial_candidates)
 
-        # Lakukan post-filtering
-        input_title_original = movie_row['title'].values[0]
-        input_genres = set(movies_2020[movies_2020['title'] == input_title_original]['genres_list'].iloc[0])
-
-        relevance_scores = []
-        for index, row in initial_candidates.iterrows():
-            candidate_genres = set(movies_2020[movies_2020['title'] == row['title']]['genres_list'].iloc[0])
+    # 2. Post-Filtering dengan Jaccard Similarity
+    input_genres = set(original_movies_df[original_movies_df['movieId'] == input_movie_id]['genres_list'].iloc[0])
+    relevance_scores = []
+    for index, row in initial_candidates.iterrows():
+        try:
+            candidate_genres = set(original_movies_df[original_movies_df['movieId'] == row['movieId']]['genres_list'].iloc[0])
             intersection = len(input_genres.intersection(candidate_genres))
             union = len(input_genres.union(candidate_genres))
             score = intersection / union if union != 0 else 0
             relevance_scores.append(score)
+        except IndexError:
+            relevance_scores.append(0)
+            
+    initial_candidates['jaccard_score'] = relevance_scores
+    
+    filtered = initial_candidates[initial_candidates['jaccard_score'] >= similarity_threshold]
+    filtered = filtered[filtered['movieId'] != input_movie_id]
+    
+    # 3. Logika Fallback
+    if not filtered.empty:
+        final_recommendations = filtered.head(n_recommendations)
+    else:
+        fallback_recommendations = initial_candidates[initial_candidates['movieId'] != input_movie_id]
+        final_recommendations = fallback_recommendations.head(n_recommendations)
 
-        initial_candidates['jaccard_score'] = relevance_scores
-        filtered_recommendations = initial_candidates[initial_candidates['jaccard_score'] >= 0.25]
-        filtered_recommendations = filtered_recommendations[filtered_recommendations['title_clean'] != input_title_clean]
-        final_recommendations = filtered_recommendations.head(5)
-
-        # Gabungkan dengan info genre untuk ditampilkan
-        final_recommendations_with_genres = pd.merge(
-            final_recommendations,
-            movies_2020[['title', 'genres']],
-            on='title',
-            how='left'
-        )
-        return final_recommendations_with_genres[['title', 'genres', 'mean_rating']]
-    except Exception as e:
-        st.error(f"Terjadi error pada logika rekomendasi: {e}")
-        return pd.DataFrame()
-
+    return final_recommendations
 
 # ===================================================================
 # BAGIAN 4: TAMPILAN UTAMA APLIKASI STREAMLIT
 # ===================================================================
 st.set_page_config(page_title="Rekomendasi Film", layout="wide")
 st.title("🎬 Sistem Rekomendasi Film")
-st.write("Masukkan judul film favorit Anda untuk menemukan film serupa, atau cari judul dari daftar di samping.")
+st.write("Temukan film serupa berdasarkan kemiripan genre dan popularitas menggunakan Klasterisasi K-Means.")
 
-model_bundle, movies_raw, movies_2020, movies_2020_features = load_assets()
-
-if model_bundle:
+# Memuat semua aset saat aplikasi dimulai
+assets = load_assets()
+if all(asset is not None for asset in assets):
+    kmeans_model, scaler_model, pca_model, movies_2020, movies_2020_features, genre_cols = assets
+    
+    # --- Sidebar untuk mencari film ---
     st.sidebar.title("Daftar Film Tersedia (2020+)")
     search_term = st.sidebar.text_input("Cari judul film di sini:")
     if search_term:
         available_movies = movies_2020[movies_2020['title'].str.contains(search_term, case=False)]
     else:
+        # Tampilkan 1000 film pertama jika tidak ada pencarian
         available_movies = movies_2020
-    st.sidebar.dataframe(available_movies[['title', 'genres']], height=400)
+    st.sidebar.dataframe(available_movies[['title', 'genres']].head(1000), height=400)
 
-    movie_title_input = st.text_input("Ketik judul film (contoh: waves):", "waves")
+    # --- Input utama dari pengguna ---
+    movie_title_input = st.selectbox(
+        "Pilih atau ketik judul film favorit Anda:",
+        options=movies_2020['title_clean'].unique(),
+        index=list(movies_2020['title_clean'].unique()).index('waves') # Nilai default
+    )
 
-    if st.button("Cari Rekomendasi", type="primary"):
+    if st.button("Cari Rekomendasi", type="primary", use_container_width=True):
         if movie_title_input:
             with st.spinner(f"Mencari film yang mirip dengan '{movie_title_input}'..."):
-                recommendations = get_recommendations(model_bundle, movies_2020, movies_2020_features, movie_title_input.lower())
+                
+                # --- Panggilan fungsi rekomendasi yang sudah diperbaiki ---
+                recommendations = get_recommendations_final(
+                    input_title_clean=movie_title_input,
+                    df_labeled=movies_2020_features,
+                    kmeans_model=kmeans_model,
+                    scaler=scaler_model,
+                    pca=pca_model,
+                    genre_cols=genre_cols,
+                    original_movies_df=movies_2020
+                )
+                
                 st.subheader("Berikut adalah hasil rekomendasinya:")
                 if not recommendations.empty:
                     for index, row in recommendations.iterrows():
@@ -142,13 +173,11 @@ if model_bundle:
                         col1, col2 = st.columns([1, 4])
                         synopsis, poster_url = get_movie_details(row['title'])
                         with col1:
-                            if poster_url:
-                                st.image(poster_url)
-                            else:
-                                st.image("https://via.placeholder.com/200x300.png?text=No+Image")
+                            st.image(poster_url)
                         with col2:
                             st.subheader(row['title'])
-                            st.caption(f"Genre: {row['genres']} | Rating: {row['mean_rating']:.2f} ⭐")
+                            genres_display = movies_2020[movies_2020['movieId'] == row['movieId']]['genres'].iloc[0]
+                            st.caption(f"Genre: {genres_display} | Rating: {row['mean_rating']:.2f} ⭐ | Jarak Klaster: {row.get('distance', 'N/A'):.4f}")
                             st.write(synopsis)
                 else:
                     st.warning("Maaf, tidak ada rekomendasi yang ditemukan untuk judul tersebut.")
