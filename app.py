@@ -14,7 +14,7 @@ TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b"
 def load_assets():
     """Memuat semua aset: model bundle dan dataframes."""
     try:
-        model_bundle = joblib.load('recommender_model.pkl')
+        model_bundle = joblib.load('model_bundle.pkl')
         movies_df_features = pd.read_parquet("features.parquet")
         movies_df_original = pd.read_csv("movies.csv")
         
@@ -64,7 +64,7 @@ def get_movie_details(movie_title):
     return "Sinopsis tidak tersedia.", "https://via.placeholder.com/200x300.png?text=No+Image"
 
 # ===================================================================
-# BAGIAN 3: FUNGSI REKOMENDASI (VERSI PERBAIKAN FINAL)
+# BAGIAN 3: FUNGSI REKOMENDASI
 # ===================================================================
 def get_recommendations_final(input_title_clean, df_labeled, kmeans_model, scaler, pca, genre_cols,
                              original_movies_df, n_initial_candidates=30, n_recommendations=5, 
