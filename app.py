@@ -177,7 +177,7 @@ if all(asset is not None for asset in assets):
                         with col2:
                             st.subheader(row['title'])
                             genres_display = movies_2020[movies_2020['movieId'] == row['movieId']]['genres'].iloc[0]
-                            st.caption(f"Genre: {genres_display} | Rating: {row['mean_rating']:.2f} ⭐ | Jarak Klaster: {row.get('distance', 'N/A'):.4f}")
+                            st.caption(f"Genre: {genres_display} | Rating: {row['mean_rating']:.2f} ⭐")
                             st.write(synopsis)
                 else:
                     st.warning("Maaf, tidak ada rekomendasi yang ditemukan untuk judul tersebut.")
