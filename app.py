@@ -68,7 +68,7 @@ def get_movie_details(movie_title):
 # BAGIAN 3: FUNGSI REKOMENDASI
 # ===================================================================
 def get_recommendations_final(input_title_clean, df_labeled, kmeans_model, scaler, pca, genre_cols,
-                             original_movies_df, n_initial_candidates=30, n_recommendations=5, 
+                             original_movies_df, genre_weight, n_initial_candidates=30, n_recommendations=5, 
                              similarity_threshold=0.5):
     """
     Fungsi rekomendasi FINAL dengan logika centroid dan fallback.
