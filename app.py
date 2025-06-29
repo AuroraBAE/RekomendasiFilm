@@ -22,6 +22,7 @@ def load_assets():
         scaler = model_bundle['scaler']
         pca = model_bundle['pca']
         kmeans = model_bundle['kmeans']
+        genre_weight = model_bundle.get('genre_weight', 3.0) 
         
         # Siapkan dataframe movies_2020 untuk genres_list
         movies_2020 = movies_df_original[movies_df_original['movieId'].isin(movies_df_features['movieId'])].copy()
@@ -32,7 +33,7 @@ def load_assets():
                             'mean_rating', 'num_ratings', 'decoded_genre', 'cluster']
         genre_cols = [col for col in movies_df_features.columns if col not in non_feature_cols]
 
-        return kmeans, scaler, pca, movies_2020, movies_df_features, genre_cols
+        return kmeans, scaler, pca, movies_2020, movies_df_features, genre_cols, genre_weight
     
     except FileNotFoundError as e:
         st.error(f"Error: File aset tidak ditemukan. Pastikan file '{e.filename}' ada di direktori aplikasi Anda.")
@@ -84,8 +85,7 @@ def get_recommendations_final(input_title_clean, df_labeled, kmeans_model, scale
     features = cluster_df[genre_cols + ['mean_rating', 'num_ratings']].fillna(0)
     
     # Terapkan bobot yang sama seperti saat training
-    weight = 3.0 # PASTIKAN INI SAMA DENGAN BOBOT SAAT TRAINING
-    features[genre_cols] *= weight
+    features[genre_cols] *= genre_weight
     
     scaled_features = scaler.transform(features)
     reduced_features = pca.transform(scaled_features)
@@ -131,7 +131,7 @@ st.write("Temukan film serupa berdasarkan kemiripan genre dan popularitas menggu
 # Memuat semua aset saat aplikasi dimulai
 assets = load_assets()
 if all(asset is not None for asset in assets):
-    kmeans_model, scaler_model, pca_model, movies_2020, movies_2020_features, genre_cols = assets
+    kmeans_model, scaler_model, pca_model, movies_2020, movies_2020_features, genre_cols, genre_weight = assets
     
     # --- Sidebar untuk mencari film ---
     st.sidebar.title("Daftar Film Tersedia (2020+)")
@@ -162,6 +162,7 @@ if all(asset is not None for asset in assets):
                     scaler=scaler_model,
                     pca=pca_model,
                     genre_cols=genre_cols,
+                    genre_weight=genre_weight,
                     original_movies_df=movies_2020
                 )
                 
