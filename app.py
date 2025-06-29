@@ -8,8 +8,7 @@ import requests
 # BAGIAN 1: KONFIGURASI DAN FUNGSI PEMUATAN ASET
 # ===================================================================
 
-# GANTI DENGAN API KEY ANDA YANG SEBENARNYA DARI TMDB
-TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b" # Silakan ganti dengan API Key Anda
+TMDB_API_KEY = "4359622a966ba5b04ead2088a11c9e4b"
 
 @st.cache_data
 def load_assets():
@@ -43,7 +42,7 @@ def load_assets():
         return None, None, None, None, None, None
 
 # ===================================================================
-# BAGIAN 2: FUNGSI UNTUK MENGAMBIL DETAIL FILM DARI TMDB (TIDAK PERLU DIUBAH)
+# BAGIAN 2: FUNGSI UNTUK MENGAMBIL DETAIL FILM DARI TMDB 
 # ===================================================================
 @st.cache_data
 def get_movie_details(movie_title):
